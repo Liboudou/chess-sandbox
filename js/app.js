@@ -240,6 +240,7 @@ async function makeAiMove() {
 }
 
 function updateAfterMove() {
+  renderBoard();
   updateHistory();
   updateStatus();
   if (game.gameOver) {
@@ -627,8 +628,6 @@ document.addEventListener("DOMContentLoaded", () => {
       goToMove(savedGameState.moves.length - 1);
     }
   });
-
-  }
 
   // Initial UI updates
   updateThemeUi();
