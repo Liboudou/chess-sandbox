@@ -282,6 +282,46 @@ body {
   to { opacity: 0; transform: scale(0.5); }
 }
 
+/* Import PGN Dialog */
+#importPgnDialog {
+  position: fixed;
+  inset: 0;
+  background: var(--promotion-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(2px);
+}
+
+.import-pgn-content {
+  background: var(--promotion-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+#importPgnText {
+  width: 100%;
+  margin: 12px 0;
+  padding: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.import-pgn-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
 /* Status Bar */
 .status-bar {
   grid-column: 1;

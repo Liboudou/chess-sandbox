@@ -25,6 +25,8 @@
         <button id="newGameBtn">Nouvelle partie</button>
         <button id="undoBtn">↩ Annuler</button>
         <button id="resignBtn">🏳 Abandonner</button>
+        <button id="exportPgnBtn">📥 Exporter PGN</button>
+        <button id="importPgnBtn">📤 Importer PGN</button>
       </div>
     </header>
     <main id="main">
@@ -47,6 +49,16 @@
       <div class="promotion-content">
         <p>Promotion</p>
         <div id="promotionChoices"></div>
+      </div>
+    </div>
+    <div id="importPgnDialog" class="hidden">
+      <div class="import-pgn-content">
+        <p>📤 Coller le PGN</p>
+        <textarea id="importPgnText" rows="8" cols="40"></textarea>
+        <div class="import-pgn-buttons">
+          <button id="importPgnConfirmBtn">Importer</button>
+          <button id="importPgnCancelBtn">Annuler</button>
+        </div>
       </div>
     </div>
   </div>
