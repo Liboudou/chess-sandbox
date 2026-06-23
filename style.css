@@ -282,46 +282,6 @@ body {
   to { opacity: 0; transform: scale(0.5); }
 }
 
-/* Import PGN Dialog */
-#importPgnDialog {
-  position: fixed;
-  inset: 0;
-  background: var(--promotion-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  backdrop-filter: blur(2px);
-}
-
-.import-pgn-content {
-  background: var(--promotion-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
-  text-align: center;
-}
-
-#importPgnText {
-  width: 100%;
-  margin: 12px 0;
-  padding: 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: monospace;
-  font-size: 0.85rem;
-  resize: vertical;
-}
-
-.import-pgn-buttons {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-
 /* Status Bar */
 .status-bar {
   grid-column: 1;
@@ -440,6 +400,11 @@ body {
 
 .move-row:last-child {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.move-row-active {
+  background: rgba(255, 215, 0, 0.15) !important;
+  border-left: 3px solid gold;
 }
 
 .move-number {
@@ -627,3 +592,43 @@ body {
     font-size: 1.6rem;
   }
 }
+
+.animated-piece {
+  position: absolute;
+  pointer-events: none;
+  transition: transform 250ms ease-out, opacity 250ms ease-out;
+  z-index: 100;
+}
+
+/* Light theme */
+:root[data-theme="light"] {
+  --bg-primary: #f5f5f5;
+  --bg-secondary: #e0e0e0;
+  --bg-surface: #ffffff;
+  --bg-button: #e0e0e0;
+  --bg-button-hover: #d5d5d5;
+  --bg-button-active: #cfcfcf;
+  --text-primary: #222222;
+  --text-secondary: #555555;
+  --text-muted: #777777;
+  --light-square: #f0d9b5;
+  --dark-square: #b58863;
+  --white-piece: #000000;
+  --black-piece: #ffffff;
+  --selected-glow: rgba(255, 215, 0, 0.5);
+  --legal-move: #4caf50;
+  --last-move-from: rgba(255, 255, 0, 0.25);
+  --last-move-to: rgba(0, 255, 255, 0.2);
+  --check-red: #ff2020;
+  --promotion-overlay: rgba(0, 0, 0, 0.5);
+  --promotion-bg: #ffffff;
+  --border-color: #cccccc;
+  --scrollbar-thumb: #999999;
+  --scrollbar-track: #f1f1f1;
+  --header-bg: #e0e0e0;
+  --status-bg: #f0f0f0;
+}
+
+/* Ensure pieces are visible on light board */
+.piece.white { color: var(--white-piece); }
+.piece.black { color: var(--black-piece); }

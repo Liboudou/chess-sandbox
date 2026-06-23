@@ -22,6 +22,7 @@
         <select id="difficultySelect">
           <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10" selected>10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
         </select>
+        <button id="themeToggle" aria-label="Changer de thème" title="Thème clair/sombre">🌓</button>
         <button id="newGameBtn">Nouvelle partie</button>
         <button id="undoBtn">↩ Annuler</button>
         <button id="resignBtn">🏳 Abandonner</button>
@@ -31,17 +32,23 @@
     </header>
     <main id="main">
       <div class="board-wrapper">
-        <div id="board"></div>
+        <div id="board" role="application" aria-label="Plateau d'échecs" tabindex="0"></div>
       </div>
       <aside id="sidebar">
         <div id="statusBar">
           <span id="turnIndicator"></span>
-          <span id="statusText"></span>
+          <span id="statusText" aria-live="polite"></span>
           <span id="moveCount"></span>
         </div>
         <div id="historyPanel">
           <h3>📜 Coups</h3>
           <div id="moveList"></div>
+          <div id="replayControls" class="hidden">
+            <button id="replayStartBtn" title="Début">|◀</button>
+            <button id="replayPrevBtn" title="Précédent">◀</button>
+            <button id="replayNextBtn" title="Suivant">▶</button>
+            <button id="replayEndBtn" title="Fin">▶|</button>
+          </div>
         </div>
       </aside>
     </main>

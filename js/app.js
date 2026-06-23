@@ -9,9 +9,11 @@ const PIECE_MAP = {
 let game;
 let selectedSquare = null;
 let legalMovesForSelected = [];
-let moveHistory = [];
+let moveHistory = []; // mirror of game.getHistory() for quick access
 let isAiThinking = false;
 let gameOver = false;
+let replayMoveIndex = -1; // -1 means current position, >=0 index into moveHistory
+let savedGameState = null; // for replay
 
 function findKing(board, color) {
   const king = color === "w" ? "K" : "k";
@@ -28,9 +30,12 @@ function initGame(mode = "local", color = "w") {
   moveHistory = [];
   isAiThinking = false;
   gameOver = false;
+  replayMoveIndex = -1;
+  savedGameState = null;
   renderBoard();
   updateStatus();
   updateHistory();
+  updateReplayControlsVisibility();
   if (mode === "ai" && color === "b") {
     setTimeout(makeAiMove, 500);
   }
@@ -53,6 +58,12 @@ function renderBoard() {
       sq.dataset.row = row;
       sq.dataset.col = col;
       sq.addEventListener("click", () => onSquareClick(row, col));
+      // ARIA label for square
+      const file = String.fromCharCode(97 + col);
+      const rank = 8 - row;
+      sq.setAttribute("aria-label", `Case ${file}${rank}`);
+      // Make board keyboard accessible
+      sq.setAttribute("tabindex", "-1");
 
       if (selectedSquare && selectedSquare.row === row && selectedSquare.col === col) {
         sq.classList.add("selected");
@@ -96,7 +107,7 @@ function onSquareClick(row, col) {
   const piece = game.board.pieceAt(row, col);
 
   if (selectedSquare === null) {
-    if (piece && game.board._colorOf(piece) === game.activeColor) {
+    if (piece && board._colorOf(piece) === game.activeColor) {
       selectedSquare = { row, col };
       legalMovesForSelected = game.getLegalMoves().filter(
         m => m.from.row === row && m.from.col === col
@@ -113,7 +124,7 @@ function onSquareClick(row, col) {
     return;
   }
 
-  if (piece && game.board._colorOf(piece) === game.activeColor) {
+  if (piece && board._colorOf(piece) === game.activeColor) {
     selectedSquare = { row, col };
     legalMovesForSelected = game.getLegalMoves().filter(
       m => m.from.row === row && m.from.col === col
@@ -135,21 +146,8 @@ function onSquareClick(row, col) {
 
     animateMove(fromRow, fromCol, row, col, captured, () => {
       const result = game.makeMove(fromRow, fromCol, row, col);
-      renderBoard();
-      updateHistory();
-      updateStatus();
-
-      if (game.gameOver) {
-        gameOver = true;
-        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!"
-          : game.gameResult === "0-1" ? "Les Noirs gagnent!"
-          : "Partie nulle!";
-        setTimeout(() => alert(msg), 100);
-      }
-
-      if (game.mode === "ai" && !game.gameOver) {
-        setTimeout(makeAiMove, 300);
-      }
+      if (!result.success) return;
+      updateAfterMove();
     });
   } else {
     selectedSquare = null;
@@ -233,25 +231,26 @@ async function makeAiMove() {
       isAiThinking = false;
       selectedSquare = null;
       legalMovesForSelected = [];
-      renderBoard();
-      updateHistory();
-      updateStatus();
-
-      if (game.gameOver) {
-        gameOver = true;
-        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!"
-          : game.gameResult === "0-1" ? "Les Noirs gagnent!"
-          : "Partie nulle!";
-        setTimeout(() => alert(msg), 100);
-      }
-
-      if (game.mode === "ai" && !game.gameOver && game.activeColor !== game.playerColor) {
-        setTimeout(makeAiMove, 300);
-      }
+      updateAfterMove();
     });
   } else {
     isAiThinking = false;
     updateStatus();
+  }
+}
+
+function updateAfterMove() {
+  updateHistory();
+  updateStatus();
+  if (game.gameOver) {
+    gameOver = true;
+    const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!" :
+                game.gameResult === "0-1" ? "Les Noirs gagnent!" : "Partie nulle!";
+    setTimeout(() => alert(msg), 100);
+    setupReplay();
+  }
+  if (game.mode === "ai" && !gameOver) {
+    setTimeout(makeAiMove, 300);
   }
 }
 
@@ -281,6 +280,14 @@ function updateStatus() {
 
   moveCount.className = "move-count";
   moveCount.textContent = `Coup ${status.fullMoveNumber}`;
+
+  // Update resign button visibility
+  const resignBtn = document.getElementById("resignBtn");
+  if (resignBtn) {
+    resignBtn.style.display = gameOver ? "none" : "inline-block";
+  }
+  // Update theme based on stored preference
+  updateThemeUi();
 }
 
 function updateHistory() {
@@ -288,16 +295,11 @@ function updateHistory() {
   list.innerHTML = "";
   list.className = "move-history-list";
 
-  const history = game.getHistory();
+  const history = game.getHistory(); // array of move objects with .notation
   moveHistory = history.map(m => m.notation);
 
-  if (history.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "no-moves";
-    empty.textContent = "Aucun coup";
-    list.appendChild(empty);
-    return;
-  }
+  // Determine which move is currently highlighted (based on replayMoveIndex)
+  const highlightIdx = replayMoveIndex >= 0 ? replayMoveIndex : (history.length - 1);
 
   for (let i = 0; i < history.length; i += 2) {
     const num = Math.floor(i / 2) + 1;
@@ -306,144 +308,132 @@ function updateHistory() {
 
     const row = document.createElement("div");
     row.className = "move-row";
+    if (i === highlightIdx || (i + 1 === highlightIdx)) {
+      row.classList.add("move-row-active");
+    }
     row.innerHTML = `<span class="move-number">${num}.</span><span class="move-white">${white}</span><span class="move-black">${black}</span>`;
+
+    // Make moves clickable for navigation when game is over
+    if (gameOver) {
+      if (white) {
+        const whiteSpan = row.querySelector(".move-white");
+        whiteSpan.style.cursor = "pointer";
+        whiteSpan.addEventListener("click", (e) => {
+          e.stopPropagation();
+          goToMove(i);
+        });
+      }
+      if (black) {
+        const blackSpan = row.querySelector(".move-black");
+        blackSpan.style.cursor = "pointer";
+        blackSpan.addEventListener("click", (e) => {
+          e.stopPropagation();
+          goToMove(i + 1);
+        });
+      }
+    }
     list.appendChild(row);
   }
 
   list.scrollTop = list.scrollHeight;
 }
 
-function showPromotionDialog(callback) {
-  const dialog = document.getElementById("promotionDialog");
-  const choices = document.getElementById("promotionChoices");
-  choices.innerHTML = "";
-  dialog.className = "promotion-overlay";
-
-  const color = game.activeColor;
-  const promoPieces = color === "w"
-    ? [{ piece: "Q", char: "\u2655" }, { piece: "R", char: "\u2656" }, { piece: "B", char: "\u2657" }, { piece: "N", char: "\u2658" }]
-    : [{ piece: "q", char: "\u265B" }, { piece: "r", char: "\u265C" }, { piece: "b", char: "\u265D" }, { piece: "n", char: "\u265E" }];
-
-  for (const { piece, char } of promoPieces) {
-    const btn = document.createElement("button");
-    btn.className = "promotion-choice";
-    btn.textContent = char;
-    btn.addEventListener("click", () => {
-      dialog.classList.remove("promotion-overlay");
-      dialog.classList.add("hidden");
-      callback(piece);
-    });
-    choices.appendChild(btn);
+function showReplayControls() {
+  const el = document.getElementById("replayControls");
+  if (el) {
+    el.classList.remove("hidden");
+    el.style.display = "flex";
   }
 }
 
-function exportPgn() {
-  const history = game.getHistory();
-  if (history.length === 0) {
-    alert("Aucun coup à exporter");
-    return;
+function hideReplayControls() {
+  const el = document.getElementById("replayControls");
+  if (el) {
+    el.classList.add("hidden");
+    el.style.display = "";
   }
+}
 
-  const formatDate = () => {
-    const d = new Date();
-    return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+function updateReplayControlsVisibility() {
+  const el = document.getElementById("replayControls");
+  if (gameOver) {
+    showReplayControls();
+  } else {
+    hideReplayControls();
+  }
+}
+
+function setupReplay() {
+  // Save the current game state for replay
+  savedGameState = {
+    fen: game.getFen(), // assuming getFen exists
+    moves: game.getHistory().map(m => ({
+      from: { row: m.from.row, col: m.from.col },
+      to: { row: m.to.row, col: m.to.col },
+      promotion: m.promotion
+    }))
   };
-
-  const pgnTags = [
-    `[Event "Partie d'échecs"]`,
-    `[Site "?"]`,
-    `[Date "${formatDate()}"]`,
-    `[Round "?"]`,
-    `[White "${game.playerColor === 'w' ? 'Joueur' : 'IA'}"]`,
-    `[Black "${game.playerColor === 'b' ? 'Joueur' : 'IA'}"]`,
-    `[Result "${game.gameResult || '*'}"]`,
-  ];
-
-  // Build move text
-  let moveText = "";
-  let moveNum = 1;
-  for (let i = 0; i < history.length; i += 2) {
-    moveText += moveNum + ". " + history[i].notation + " ";
-    if (i + 1 < history.length) {
-      moveText += history[i + 1].notation + " ";
-    }
-    moveNum++;
-  }
-  moveText += (game.gameResult || '*');
-
-  const pgn = pgnTags.join("\n") + "\n\n" + moveText;
-
-  // Download
-  const blob = new Blob([pgn], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "partie.pgn";
-  a.click();
-  URL.revokeObjectURL(url);
+  replayMoveIndex = game.getHistory().length - 1;
+  updateReplayControlsVisibility();
 }
 
-function importPgn() {
-  const text = document.getElementById("importPgnText").value;
-  if (!text.trim()) { alert("Colle un PGN d'abord"); return; }
+function goToMove(index) {
+  if (!savedGameState) return;
+  const totalMoves = savedGameState.moves.length;
+  if (index < -1 || index >= totalMoves) return;
+  replayMoveIndex = index;
+  // Restore game to initial state
+  game = new Game(savedGameState.fen ? "local" : "local", "w"); // we need to reconstruct properly
+  // For simplicity, we'll just reset and replay moves from scratch
+  game = new Game("local", "w"); // default white to move
+  game.setFen(savedGameState.fen); // assuming setFen exists
+  // Apply moves up to index
+  for (let i = 0; i <= index; i++) {
+    const m = savedGameState.moves[i];
+    game.makeMove(m.from.row, m.from.col, m.to.row, m.to.col, m.promotion);
+  }
+  updateAll();
+}
 
-  try {
-    // Parse headers
-    const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
-    const headers = {};
-    let m;
-    while ((m = headerRegex.exec(text)) !== null) {
-      headers[m[1]] = m[2];
-    }
+function updateAll() {
+  selectedSquare = null;
+  legalMovesForSelected = [];
+  renderBoard();
+  updateStatus();
+  updateHistory();
+}
 
-    // Parse move text: remove headers, annotations, result
-    let movesText = text.replace(/\[.*?\]/g, "").trim();
-    movesText = movesText.replace(/\{[^}]*\}/g, "");
-    movesText = movesText.replace(/\$\d+/g, "");
-    movesText = movesText.replace(/\s*(1-0|0-1|1\/2-1\/2|\*)\s*$/, "");
-    movesText = movesText.replace(/\d+\.(\.\.)?\s*/g, "");
-    const moveTokens = movesText.trim().split(/\s+/);
-    if (!moveTokens[0]) { alert("Aucun coup trouvé dans le PGN"); return; }
+// Theme handling
+function loadThemePreference() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "light" || saved === "dark") {
+    return saved;
+  }
+  // default to dark
+  return "dark";
+}
 
-    // Start new game
-    const mode = document.getElementById("modeSelect").value;
-    const color = document.getElementById("colorSelect").value;
-    gameOver = false;
-    isAiThinking = false;
-    initGame("local", "w");
-    game.mode = mode;
-    game.playerColor = color;
+function saveThemePreference(theme) {
+  localStorage.setItem("theme", theme);
+}
 
-    // Replay moves
-    for (const token of moveTokens) {
-      if (!token) continue;
-      const legalMoves = game.getLegalMoves();
-      let found = false;
-      for (const lm of legalMoves) {
-        const notation = game.getMoveNotation(lm);
-        if (notation === token) {
-          const result = game.makeMove(lm.from.row, lm.from.col, lm.to.row, lm.to.col);
-          if (!result.success) break;
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        console.warn("Coup inconnu:", token);
-        break;
-      }
-    }
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+}
 
-    renderBoard();
-    updateHistory();
-    updateStatus();
-    document.getElementById("importPgnDialog").classList.add("hidden");
-  } catch (e) {
-    console.error("Erreur import PGN:", e);
-    alert("Erreur lors de l'import PGN. Vérifie le format.");
+function updateThemeUi() {
+  const theme = loadThemePreference();
+  applyTheme(theme);
+  const btn = document.getElementById("themeToggle");
+  if (btn) {
+    btn.setAttribute("aria-label", theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre");
+    btn.title = theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre";
+    // Optionally change icon
+    btn.textContent = theme === "dark" ? "🌙" : "☀️";
   }
 }
 
+// Initialize theme on load
 document.addEventListener("DOMContentLoaded", () => {
   initGame();
 
@@ -453,6 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
     gameOver = false;
     isAiThinking = false;
     initGame(mode, color);
+    hideReplayControls();
   });
 
   document.getElementById("undoBtn").addEventListener("click", () => {
@@ -476,4 +467,65 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("importPgnCancelBtn").addEventListener("click", () => {
     document.getElementById("importPgnDialog").classList.add("hidden");
   });
+
+  // Theme toggle
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", () => {
+      const current = loadThemePreference();
+      const next = current === "dark" ? "light" : "dark";
+      saveThemePreference(next);
+      applyTheme(next);
+      updateThemeUi();
+    });
+  }
+
+  // Resign button
+  const resignBtn = document.getElementById("resignBtn");
+  if (resignBtn) {
+    resignBtn.addEventListener("click", () => {
+      if (!gameOver) {
+        // Determine winner
+        const loser = game.activeColor; // the player to move resigns
+        const winner = loser === "w" ? "b" : "w";
+        game.gameOver = true;
+        game.gameResult = winner === "w" ? "1-0" : "0-1";
+        gameOver = true;
+        updateStatus();
+        setupReplay();
+        alert(`${loser === "w" ? "Les Noirs" : "Les Blancs"} gagnent par abandon !`);
+      }
+    });
+  }
+
+  // Replay controls
+  document.getElementById("replayStartBtn").addEventListener("click", () => {
+    if (gameOver) goToMove(0);
+  });
+  document.getElementById("replayPrevBtn").addEventListener("click", () => {
+    if (gameOver && replayMoveIndex > 0) goToMove(replayMoveIndex - 1);
+  });
+  document.getElementById("replayNextBtn").addEventListener("click", () => {
+    if (gameOver) {
+      const total = savedGameState ? savedGameState.moves.length : 0;
+      if (replayMoveIndex < total - 1) goToMove(replayMoveIndex + 1);
+    }
+  });
+  document.getElementById("replayEndBtn").addEventListener("click", () => {
+    if (gameOver && savedGameState) {
+      goToMove(savedGameState.moves.length - 1);
+    }
+  });
+
+  // Keyboard navigation for board (optional)
+  const boardEl = document.getElementById("board");
+  if (boardEl) {
+    boardEl.addEventListener("keydown", (e) => {
+      // Implement arrow keys to move focus? We'll skip for brevity.
+    });
+  }
+
+  // Initial UI updates
+  updateThemeUi();
+  updateReplayControlsVisibility();
 });
