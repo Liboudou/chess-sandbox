@@ -96,9 +96,9 @@ function onSquareClick(row, col) {
   const piece = game.board.pieceAt(row, col);
 
   if (selectedSquare === null) {
-    if (piece && board._colorOf(piece) === game.activeColor) {
+    if (piece && game.board._colorOf(piece) === game.activeColor) {
       selectedSquare = { row, col };
-      legalMovesForSelected = getLegalMoves().filter(
+      legalMovesForSelected = game.getLegalMoves().filter(
         m => m.from.row === row && m.from.col === col
       );
       renderBoard();
@@ -113,9 +113,9 @@ function onSquareClick(row, col) {
     return;
   }
 
-  if (piece && board._colorOf(piece) === game.activeColor) {
+  if (piece && game.board._colorOf(piece) === game.activeColor) {
     selectedSquare = { row, col };
-    legalMovesForSelected = getLegalMoves().filter(
+    legalMovesForSelected = game.getLegalMoves().filter(
       m => m.from.row === row && m.from.col === col
     );
     renderBoard();
@@ -127,28 +127,87 @@ function onSquareClick(row, col) {
   );
 
   if (isLegal) {
-    const result = makeMove(selectedSquare.row, selectedSquare.col, row, col);
+    const fromRow = selectedSquare.row;
+    const fromCol = selectedSquare.col;
+    const captured = game.board.pieceAt(row, col);
     selectedSquare = null;
     legalMovesForSelected = [];
-    renderBoard();
-    updateHistory();
-    updateStatus();
 
-    if (game.gameOver) {
-      gameOver = true;
-      const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!" :
-        game.gameResult === "0-1" ? "Les Noirs gagnent!" : "Partie nulle!";
-      setTimeout(() => alert(msg), 100);
-    }
+    animateMove(fromRow, fromCol, row, col, captured, () => {
+      const result = game.makeMove(fromRow, fromCol, row, col);
+      renderBoard();
+      updateHistory();
+      updateStatus();
 
-    if (game.mode === "ai" && !game.gameOver) {
-      setTimeout(makeAiMove, 300);
-    }
+      if (game.gameOver) {
+        gameOver = true;
+        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!"
+          : game.gameResult === "0-1" ? "Les Noirs gagnent!"
+          : "Partie nulle!";
+        setTimeout(() => alert(msg), 100);
+      }
+
+      if (game.mode === "ai" && !game.gameOver) {
+        setTimeout(makeAiMove, 300);
+      }
+    });
   } else {
     selectedSquare = null;
     legalMovesForSelected = [];
     renderBoard();
   }
+}
+
+function animateMove(fromRow, fromCol, toRow, toCol, captured, callback) {
+  const boardEl = document.getElementById("board");
+  const squares = boardEl.querySelectorAll(".square");
+  const fromSq = squares[fromRow * 8 + fromCol];
+  const toSq = squares[toRow * 8 + toCol];
+  const pieceSpan = fromSq.querySelector(".piece");
+  if (!pieceSpan) { callback(); return; }
+
+  // Animate captured piece fade-out
+  if (captured) {
+    const toPiece = toSq.querySelector(".piece");
+    if (toPiece) {
+      toPiece.classList.add("fade-out");
+    }
+  }
+
+  // Create floating piece
+  const floatEl = document.createElement("span");
+  floatEl.className = pieceSpan.className + " floating";
+  floatEl.textContent = pieceSpan.textContent;
+
+  const fromRect = fromSq.getBoundingClientRect();
+  floatEl.style.left = fromRect.left + "px";
+  floatEl.style.top = fromRect.top + "px";
+  floatEl.style.width = fromRect.width + "px";
+  floatEl.style.height = fromRect.height + "px";
+  floatEl.style.display = "flex";
+  floatEl.style.alignItems = "center";
+  floatEl.style.justifyContent = "center";
+  document.body.appendChild(floatEl);
+
+  // Mark source piece as moving
+  pieceSpan.classList.add("moving");
+
+  // Trigger reflow then animate to target
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const toRect = toSq.getBoundingClientRect();
+      const dx = toRect.left - fromRect.left;
+      const dy = toRect.top - fromRect.top;
+      floatEl.style.transform = `translate(${dx}px, ${dy}px)`;
+
+      // After animation complete, remove floating element and call callback
+      setTimeout(() => {
+        floatEl.remove();
+        pieceSpan.classList.remove("moving");
+        callback();
+      }, 260);
+    });
+  });
 }
 
 async function makeAiMove() {
@@ -157,7 +216,7 @@ async function makeAiMove() {
 
   const aiColor = game.playerColor === "w" ? "b" : "w";
   const difficultyEl = document.getElementById("difficultySelect");
-  const skillLevel = difficultyEl ? parseInt(difficultySelect.value, 10) : 10;
+  const skillLevel = difficultyEl ? parseInt(difficultyEl.value, 10) : 10;
   const result = await findBestMove(
     game.board,
     aiColor,
@@ -168,7 +227,8 @@ async function makeAiMove() {
   );
 
   if (result.move) {
-    setTimeout(() => {
+    const captured = game.board.pieceAt(result.move.to.row, result.move.to.col);
+    animateMove(result.move.from.row, result.move.from.col, result.move.to.row, result.move.to.col, captured, () => {
       game.makeMove(result.move.from.row, result.move.from.col, result.move.to.row, result.move.to.col);
       isAiThinking = false;
       selectedSquare = null;
@@ -179,15 +239,16 @@ async function makeAiMove() {
 
       if (game.gameOver) {
         gameOver = true;
-        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!" :
-          game.gameResult === "0-1" ? "Les Noirs gagnent!" : "Partie nulle!";
+        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!"
+          : game.gameResult === "0-1" ? "Les Noirs gagnent!"
+          : "Partie nulle!";
         setTimeout(() => alert(msg), 100);
       }
 
       if (game.mode === "ai" && !game.gameOver && game.activeColor !== game.playerColor) {
         setTimeout(makeAiMove, 300);
       }
-    }, 50);
+    });
   } else {
     isAiThinking = false;
     updateStatus();
