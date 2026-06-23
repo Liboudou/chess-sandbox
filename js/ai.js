@@ -1,4 +1,55 @@
-import { Board, generateLegalMoves, makeMove, isInCheck, isCheckmate, isStalemate } from './chess.js';
+import { Board, generateLegalMoves, makeMove, isInCheck, isCheckmate, isStalemate, toFen } from './chess.js';
+
+// Stockfish Web Worker
+const STOCKFISH_URL = 'https://cdn.jsdelivr.net/npm/stockfish.js/stockfish.wasm.js';
+let sfWorker = null;
+let sfReady = false;
+let sfPendingResolve = null;
+let sfPendingTimeout = null;
+
+function initStockfish() {
+  try {
+    sfWorker = new Worker(STOCKFISH_URL);
+    sfWorker.onmessage = function(e) {
+      const msg = e.data;
+      if (msg === 'uciok') {
+        sfWorker.postMessage('isready');
+      } else if (msg === 'readyok') {
+        sfReady = true;
+      } else if (typeof msg === 'string' && msg.startsWith('bestmove')) {
+        const parts = msg.split(' ');
+        const move = parts[1] === '(none)' ? null : parts[1];
+        if (sfPendingResolve) {
+          const resolve = sfPendingResolve;
+          sfPendingResolve = null;
+          clearTimeout(sfPendingTimeout);
+          resolve(move);
+        }
+      }
+    };
+    sfWorker.postMessage('uci');
+  } catch (e) {
+    console.warn('Stockfish init failed:', e);
+  }
+}
+initStockfish();
+
+function getStockfishMove(fen, skillLevel) {
+  return new Promise((resolve) => {
+    if (!sfWorker || !sfReady) { resolve(null); return; }
+    sfPendingResolve = resolve;
+    sfPendingTimeout = setTimeout(() => {
+      if (sfPendingResolve) {
+        const resolve = sfPendingResolve;
+        sfPendingResolve = null;
+        resolve(null);
+      }
+    }, 5000);
+    sfWorker.postMessage('ucinewgame');
+    sfWorker.postMessage('position fen ' + fen);
+    sfWorker.postMessage('go skilllevel ' + skillLevel);
+  });
+}
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
@@ -6,8 +57,8 @@ const PAWN_TABLE = [
   [ 0,  0,  0,  0,  0,  0,  0,  0],
   [50, 50, 50, 50, 50, 50, 50, 50],
   [10, 10, 20, 30, 30, 20, 10, 10],
-  [ 5,  5, 10, 25, 25, 10,  5,  5],
-  [ 0,  0,  0, 20, 20,  0,  0,  0],
+  [ 5,  5,  10, 25, 25, 10,  5,  5],
+  [ 0,  0,  0,  20, 20,  0,  0,  0],
   [ 5, -5,-10,  0,  0,-10, -5,  5],
   [ 5, 10, 10,-20,-20, 10, 10,  5],
   [ 0,  0,  0,  0,  0,  0,  0,  0]
@@ -29,8 +80,8 @@ const BISHOP_TABLE = [
   [-10,  0,  0,  0,  0,  0,  0,-10],
   [-10,  0,  5, 10, 10,  5,  0,-10],
   [-10,  5,  5, 10, 10,  5,  5,-10],
-  [-10,  0, 10, 10, 10, 10,  0,-10],
-  [-10, 10, 10, 10, 10, 10, 10,-10],
+  [-10,  0,  10, 10, 10, 10,  0,-10],
+  [-10,  10,  10, 10, 10, 10, 10,-10],
   [-10,  5,  0,  0,  0,  0,  5,-10],
   [-20,-10,-10,-10,-10,-10,-10,-20]
 ];
@@ -207,6 +258,10 @@ function minimax(board, depth, alpha, beta, isMaximizing, color, epSquare, castl
   orderedMoves.sort((a, b) => moveOrderScore(board, b) - moveOrderScore(board, a));
 
   for (const move of orderedMoves) {
+    if (isTimeout(startTime, timeLimit)) {
+      throw new Error('timeout');
+    }
+
     const result = makeMove(board, move, epSquare, castleRights);
     const score = minimax(result.board, depth - 1, alpha, beta, !isMaximizing, color, result.epSquare, result.castleRights, nodesRef, startTime, timeLimit);
 
@@ -222,7 +277,42 @@ function minimax(board, depth, alpha, beta, isMaximizing, color, epSquare, castl
   return isMaximizing ? alpha : beta;
 }
 
-export function findBestMove(board, color, epSquare, castleRights, depth = 3) {
+export async function findBestMove(board, color, epSquare, castleRights, depth = 3, skillLevel = 10) {
+  // Try Stockfish first
+  try {
+    const fen = toFen(board, color, epSquare, castleRights, 0, 1);
+    const sfResult = await getStockfishMove(fen, skillLevel);
+
+    if (sfResult) {
+      const fromCol = sfResult.charCodeAt(0) - 97;
+      const fromRow = 8 - parseInt(sfResult[1]);
+      const toCol = sfResult.charCodeAt(2) - 97;
+      const toRow = 8 - parseInt(sfResult[3]);
+      let promotion = null;
+      if (sfResult.length === 5) {
+        const p = sfResult[4].toLowerCase();
+        if (p === 'q') promotion = 'q';
+        else if (p === 'r') promotion = 'r';
+        else if (p === 'b') promotion = 'b';
+        else if (p === 'n') promotion = 'n';
+      }
+
+      const legalMoves = generateLegalMoves(board, color, epSquare, castleRights);
+      const matched = legalMoves.find(m =>
+        m.from.row === fromRow && m.from.col === fromCol &&
+        m.to.row === toRow && m.to.col === toCol &&
+        (promotion ? m.promotion === promotion : true)
+      );
+
+      if (matched) {
+        return { move: matched, score: 0, nodes: 0, depth: 20 };
+      }
+    }
+  } catch (e) {
+    console.warn('Stockfish failed, falling back to minimax:', e);
+  }
+
+  // Fallback to minimax
   let bestMove = null;
   let bestScore = -Infinity;
   let totalNodes = 0;

@@ -2,8 +2,8 @@ import { Game } from "./game.js";
 import { findBestMove } from "./ai.js";
 
 const PIECE_MAP = {
-  K: "\u2654", Q: "\u2655", R: "\u2656", B: "\u2657", N: "\u2658", P: "\u2659",
-  k: "\u265A", q: "\u265B", r: "\u265C", b: "\u265D", n: "\u265E", p: "\u265F"
+  K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",
+  k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟"
 };
 
 let game;
@@ -96,9 +96,9 @@ function onSquareClick(row, col) {
   const piece = game.board.pieceAt(row, col);
 
   if (selectedSquare === null) {
-    if (piece && game.board._colorOf(piece) === game.activeColor) {
+    if (piece && board._colorOf(piece) === game.activeColor) {
       selectedSquare = { row, col };
-      legalMovesForSelected = game.getLegalMoves().filter(
+      legalMovesForSelected = getLegalMoves().filter(
         m => m.from.row === row && m.from.col === col
       );
       renderBoard();
@@ -113,9 +113,9 @@ function onSquareClick(row, col) {
     return;
   }
 
-  if (piece && game.board._colorOf(piece) === game.activeColor) {
+  if (piece && board._colorOf(piece) === game.activeColor) {
     selectedSquare = { row, col };
-    legalMovesForSelected = game.getLegalMoves().filter(
+    legalMovesForSelected = getLegalMoves().filter(
       m => m.from.row === row && m.from.col === col
     );
     renderBoard();
@@ -127,7 +127,7 @@ function onSquareClick(row, col) {
   );
 
   if (isLegal) {
-    const result = game.makeMove(selectedSquare.row, selectedSquare.col, row, col);
+    const result = makeMove(selectedSquare.row, selectedSquare.col, row, col);
     selectedSquare = null;
     legalMovesForSelected = [];
     renderBoard();
@@ -136,9 +136,8 @@ function onSquareClick(row, col) {
 
     if (game.gameOver) {
       gameOver = true;
-      const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!"
-        : game.gameResult === "0-1" ? "Les Noirs gagnent!"
-        : "Partie nulle!";
+      const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!" :
+        game.gameResult === "0-1" ? "Les Noirs gagnent!" : "Partie nulle!";
       setTimeout(() => alert(msg), 100);
     }
 
@@ -152,17 +151,20 @@ function onSquareClick(row, col) {
   }
 }
 
-function makeAiMove() {
+async function makeAiMove() {
   isAiThinking = true;
   updateStatus();
 
   const aiColor = game.playerColor === "w" ? "b" : "w";
-  const result = findBestMove(
+  const difficultyEl = document.getElementById("difficultySelect");
+  const skillLevel = difficultyEl ? parseInt(difficultySelect.value, 10) : 10;
+  const result = await findBestMove(
     game.board,
     aiColor,
     game.epSquare,
     game.castleRights,
-    3
+    3,
+    skillLevel
   );
 
   if (result.move) {
@@ -177,9 +179,8 @@ function makeAiMove() {
 
       if (game.gameOver) {
         gameOver = true;
-        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!"
-          : game.gameResult === "0-1" ? "Les Noirs gagnent!"
-          : "Partie nulle!";
+        const msg = game.gameResult === "1-0" ? "Les Blancs gagnent!" :
+          game.gameResult === "0-1" ? "Les Noirs gagnent!" : "Partie nulle!";
         setTimeout(() => alert(msg), 100);
       }
 
@@ -203,15 +204,15 @@ function updateStatus() {
 
   statusText.className = "status-message";
   if (isAiThinking) {
-    statusText.textContent = "IA r\u00e9fl\u00e9chit...";
+    statusText.textContent = "IA réfléchit...";
   } else if (status.isCheckmate) {
-    statusText.textContent = "\u00c9chec et Mat!";
+    statusText.textContent = "Échec et Mat!";
   } else if (status.isStalemate) {
     statusText.textContent = "Pat!";
   } else if (status.gameOver) {
     statusText.textContent = "Partie nulle";
   } else if (status.inCheck) {
-    statusText.textContent = "\u00c9chec!";
+    statusText.textContent = "Échec!";
     statusText.classList.add("check");
   } else {
     statusText.textContent = status.turn === "w" ? "Tour des Blancs" : "Tour des Noirs";
@@ -259,8 +260,8 @@ function showPromotionDialog(callback) {
 
   const color = game.activeColor;
   const promoPieces = color === "w"
-    ? [{ piece: "Q", char: "\u2655" }, { piece: "R", char: "\u2656" }, { piece: "B", char: "\u2657" }, { piece: "N", char: "\u2658" }]
-    : [{ piece: "q", char: "\u265B" }, { piece: "r", char: "\u265C" }, { piece: "b", char: "\u265D" }, { piece: "n", char: "\u265E" }];
+    ? [{ piece: "Q", char: "♕" }, { piece: "R", char: "♖" }, { piece: "B", char: "♗" }, { piece: "N", char: "♘" }]
+    : [{ piece: "q", char: "♛" }, { piece: "r", char: "♜" }, { piece: "b", char: "♝" }, { piece: "n", char: "♞" }];
 
   for (const { piece, char } of promoPieces) {
     const btn = document.createElement("button");
@@ -294,6 +295,17 @@ document.addEventListener("DOMContentLoaded", () => {
       renderBoard();
       updateHistory();
       updateStatus();
+    }
+  });
+
+  // Difficulty selector
+  const difficultySelect = document.getElementById("difficultySelect");
+  window.difficulty = parseInt(difficultySelect.value, 10);
+  difficultySelect.addEventListener("change", () => {
+    window.difficulty = parseInt(difficultySelect.value, 10);
+    // If using Stockfish, update skill level
+    if (window.currentEngine && window.currentEngine instanceof StockfishEngine) {
+      window.currentEngine.setSkillLevel(window.difficulty - 1);
     }
   });
 });
