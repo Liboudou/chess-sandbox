@@ -107,7 +107,7 @@ function onSquareClick(row, col) {
   const piece = game.board.pieceAt(row, col);
 
   if (selectedSquare === null) {
-    if (piece && board._colorOf(piece) === game.activeColor) {
+    if (piece && game.board._colorOf(piece) === game.activeColor) {
       selectedSquare = { row, col };
       legalMovesForSelected = game.getLegalMoves().filter(
         m => m.from.row === row && m.from.col === col
@@ -124,7 +124,7 @@ function onSquareClick(row, col) {
     return;
   }
 
-  if (piece && board._colorOf(piece) === game.activeColor) {
+  if (piece && game.board._colorOf(piece) === game.activeColor) {
     selectedSquare = { row, col };
     legalMovesForSelected = game.getLegalMoves().filter(
       m => m.from.row === row && m.from.col === col
@@ -366,7 +366,9 @@ function updateReplayControlsVisibility() {
 function setupReplay() {
   // Save the current game state for replay
   savedGameState = {
-    fen: game.getFen(), // assuming getFen exists
+    fen: game.getFen(),
+    mode: game.mode,
+    color: game.playerColor,
     moves: game.getHistory().map(m => ({
       from: { row: m.from.row, col: m.from.col },
       to: { row: m.to.row, col: m.to.col },
@@ -382,15 +384,17 @@ function goToMove(index) {
   const totalMoves = savedGameState.moves.length;
   if (index < -1 || index >= totalMoves) return;
   replayMoveIndex = index;
-  // Restore game to initial state
-  game = new Game(savedGameState.fen ? "local" : "local", "w"); // we need to reconstruct properly
-  // For simplicity, we'll just reset and replay moves from scratch
-  game = new Game("local", "w"); // default white to move
-  game.setFen(savedGameState.fen); // assuming setFen exists
+  // Restore game to initial state using FEN
+  game = new Game(savedGameState.mode || "local", savedGameState.color || "w");
+  if (savedGameState.fen) {
+    game.loadFen(savedGameState.fen);
+  }
   // Apply moves up to index
   for (let i = 0; i <= index; i++) {
     const m = savedGameState.moves[i];
-    game.makeMove(m.from.row, m.from.col, m.to.row, m.to.col, m.promotion);
+    if (m) {
+      game.makeMove(m.from.row, m.from.col, m.to.row, m.to.col);
+    }
   }
   updateAll();
 }
@@ -430,6 +434,113 @@ function updateThemeUi() {
     btn.title = theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre";
     // Optionally change icon
     btn.textContent = theme === "dark" ? "🌙" : "☀️";
+  }
+}
+
+function exportPgn() {
+  const history = game.getHistory();
+  if (history.length === 0) {
+    alert("Aucun coup à exporter");
+    return;
+  }
+
+  const formatDate = () => {
+    const d = new Date();
+    return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  const pgnTags = [
+    `[Event "Partie d'échecs"]`,
+    `[Site "?"]`,
+    `[Date "${formatDate()}"]`,
+    `[Round "?"]`,
+    `[White "${game.playerColor === 'w' ? 'Joueur' : 'IA'}"]`,
+    `[Black "${game.playerColor === 'b' ? 'Joueur' : 'IA'}"]`,
+    `[Result "${game.gameResult || '*'}"]`,
+  ];
+
+  let moveText = "";
+  let moveNum = 1;
+  for (let i = 0; i < history.length; i += 2) {
+    moveText += moveNum + ". " + history[i].notation + " ";
+    if (i + 1 < history.length) {
+      moveText += history[i + 1].notation + " ";
+    }
+    moveNum++;
+  }
+  moveText += (game.gameResult || '*');
+
+  const pgn = pgnTags.join("\n") + "\n\n" + moveText;
+  const blob = new Blob([pgn], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "partie.pgn";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importPgn() {
+  const text = document.getElementById("importPgnText").value;
+  if (!text.trim()) { alert("Colle un PGN d'abord"); return; }
+
+  try {
+    const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
+    const headers = {};
+    let m;
+    while ((m = headerRegex.exec(text)) !== null) {
+      headers[m[1]] = m[2];
+    }
+
+    let movesText = text.replace(/\[.*?\]/g, "").trim();
+    movesText = movesText.replace(/\{[^}]*\}/g, "");
+    movesText = movesText.replace(/\$\d+/g, "");
+    movesText = movesText.replace(/\s*(1-0|0-1|1\/2-1\/2|\*)\s*$/, "");
+    movesText = movesText.replace(/\d+\.(\.\.)?\s*/g, "");
+    const moveTokens = movesText.trim().split(/\s+/);
+    if (!moveTokens[0]) { alert("Aucun coup trouvé dans le PGN"); return; }
+
+    const mode = document.getElementById("modeSelect").value;
+    const color = document.getElementById("colorSelect").value;
+    gameOver = false;
+    isAiThinking = false;
+    initGame("local", "w");
+    game.mode = mode;
+    game.playerColor = color;
+
+    for (const token of moveTokens) {
+      if (!token) continue;
+      const legalMoves = game.getLegalMoves();
+      let found = false;
+      for (const lm of legalMoves) {
+        const notation = game.getMoveNotation(lm);
+        if (notation === token) {
+          const result = game.makeMove(lm.from.row, lm.from.col, lm.to.row, lm.to.col);
+          if (!result.success) break;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        console.warn("Coup inconnu:", token);
+        break;
+      }
+    }
+
+    renderBoard();
+    updateHistory();
+    updateStatus();
+
+    // If the imported game ended, set gameOver and show replay
+    if (game.gameOver) {
+      gameOver = true;
+      setupReplay();
+    }
+
+    document.getElementById("importPgnDialog").classList.add("hidden");
+  } catch (e) {
+    console.error("Erreur import PGN:", e);
+    alert("Erreur lors de l'import PGN. Vérifie le format.");
   }
 }
 
@@ -517,12 +628,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Keyboard navigation for board (optional)
-  const boardEl = document.getElementById("board");
-  if (boardEl) {
-    boardEl.addEventListener("keydown", (e) => {
-      // Implement arrow keys to move focus? We'll skip for brevity.
-    });
   }
 
   // Initial UI updates
